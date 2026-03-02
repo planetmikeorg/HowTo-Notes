@@ -1,0 +1,18 @@
+## AlertManager
+
+Test SMTP
+```
+curl -XPOST http://<ALERTMANAGER_SERVICE>:9093/api/v2/alerts \
+  -H "Content-Type: application/json" \
+  -d '[{
+    "labels": {
+      "alertname": "SMTPTest",
+      "severity": "critical",
+      "namespace": "monitoring"
+    },
+    "annotations": {
+      "summary": "Manual SMTP test",
+      "description": "Testing Alertmanager email delivery"
+    }
+  }]'
+```
