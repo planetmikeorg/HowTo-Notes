@@ -270,7 +270,7 @@ kubectl get pods -o wide --all-namespaces | grep <app-label>
 kubectl get pod <pod-name> -n <namespace> -o yaml | grep -A 30 affinity
 
 # Scheduler logs
-kubectl logs -n kube-system $(kubectl get pods -n kube-system -l component=kube-scheduler -o name) --tail=100
+kubectl logs -n kube-system $(kubectl get pods -n kube-system -l component=kube-scheduler -o name | head -1) --tail=100
 
 # Debug scheduling
 kubectl get events --field-selector involvedObject.name=<pod-name> -n <namespace>
@@ -322,6 +322,112 @@ Admission webhooks can block pod scheduling:
 ```bash
 kubectl get validatingwebhookconfigurations
 kubectl get mutatingwebhookconfigurations
+```
+
+### Identify PreBind Plugin Failures
+
+PreBind plugins run after a node is selected but before the pod is bound. Failures here cause scheduling to fail even when affinity rules are satisfied.
+
+#### Check Pod Events for PreBind Failures
+```bash
+# Get detailed pod events
+kubectl describe pod <pod-name> -n <namespace>
+
+# Filter for PreBind-related events
+kubectl get events -n <namespace> --field-selector involvedObject.name=<pod-name> | grep -i prebind
+```
+
+Look for events like:
+- `running PreBind plugin "PluginName": <error details>`
+- `PreBind plugin rejected pod`
+
+#### Get Scheduler Logs with Plugin Details
+```bash
+# Get scheduler pod name
+SCHEDULER_POD=$(kubectl get pods -n kube-system -l component=kube-scheduler -o jsonpath='{.items[0].metadata.name}')
+
+# View recent logs with plugin information
+kubectl logs -n kube-system $SCHEDULER_POD --tail=200 | grep -A 10 -i prebind
+
+# Filter for specific pod
+kubectl logs -n kube-system $SCHEDULER_POD | grep "<pod-name>" | grep -i prebind
+```
+
+#### Enable Verbose Scheduler Logging
+For detailed plugin execution traces:
+```bash
+# Edit scheduler to add verbosity flag
+kubectl edit pod kube-scheduler-<node-name> -n kube-system
+
+# Add or modify the --v flag in the command section:
+# --v=4  : Basic plugin execution info
+# --v=5  : Detailed plugin decisions
+# --v=10 : Full debug output including plugin state
+```
+
+After saving, the scheduler pod will restart automatically.
+
+#### Check Common PreBind Plugin Issues
+
+**Volume attachment failures:**
+```bash
+# Check VolumeAttachment objects
+kubectl get volumeattachments
+
+# Check for errors in CSI driver
+kubectl logs -n kube-system -l app=csi-driver --tail=100
+```
+
+**Network plugin issues:**
+```bash
+# Check CNI plugin logs
+kubectl logs -n kube-system -l k8s-app=kube-proxy
+kubectl logs -n kube-system -l app=calico-node  # or your CNI
+```
+
+**Resource quota exceeded:**
+```bash
+# Check resource quotas in namespace
+kubectl describe resourcequota -n <namespace>
+
+# Check limit ranges
+kubectl describe limitrange -n <namespace>
+```
+
+#### Identify Which Plugin Failed
+In scheduler logs, look for the plugin name:
+```bash
+kubectl logs -n kube-system $SCHEDULER_POD | grep "PreBind plugin" | grep -i error
+```
+
+Common PreBind plugins:
+- `VolumeBinding` - Volume attachment issues
+- `NodePorts` - Port allocation conflicts
+- `PodTopologySpread` - Topology constraint violations
+- Custom admission plugins
+
+#### Get Detailed Failure Information
+```bash
+# Full event details in JSON
+kubectl get events -n <namespace> -o json | jq '.items[] | select(.involvedObject.name=="<pod-name>") | select(.message | contains("PreBind"))'
+
+# Scheduler decision trace
+kubectl logs -n kube-system $SCHEDULER_POD --tail=500 | grep -B 5 -A 10 "<pod-name>"
+```
+
+#### Debug Volume Binding PreBind Failures
+```bash
+# Check PVC status
+kubectl get pvc -n <namespace>
+kubectl describe pvc <pvc-name> -n <namespace>
+
+# Check storage class
+kubectl get storageclass
+kubectl describe storageclass <storage-class-name>
+
+# Check persistent volumes
+kubectl get pv
+kubectl describe pv <pv-name>
 ```
 
 ---
