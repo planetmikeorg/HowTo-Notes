@@ -26,7 +26,7 @@ wget -qO- --post-data='[{
   },
   "annotations": {
     "summary": "SMTP test",
-    "description": "Testing email from inside the pod"
+    "description": "Testing email from AlertManager"
   }
 }]' \
 --header='Content-Type: application/json' \
